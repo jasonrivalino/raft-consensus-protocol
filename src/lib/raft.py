@@ -1,11 +1,15 @@
 import asyncio
-from threading     import Thread
-from xmlrpc.client import ServerProxy
-from typing        import Any, List
-from enum          import Enum
-from address       import Address
 import json
 import socket
+import time
+
+from threading import Thread
+from xmlrpc.client import ServerProxy
+from typing import Any, List
+from enum import Enum
+
+from app import Application
+from struct.address import Address
 
 class RaftNode:
     HEARTBEAT_INTERVAL   = 1
@@ -23,7 +27,7 @@ class RaftNode:
         self.address:             Address           = addr
         self.type:                RaftNode.NodeType = RaftNode.NodeType.FOLLOWER
         self.log:                 List[str, str]    = []
-        self.app:                 Any               = application
+        self.app:                 Application       = application
         self.election_term:       int               = 0
         self.cluster_addr_list:   List[Address]     = []
         self.cluster_leader_addr: Address           = None
@@ -32,6 +36,10 @@ class RaftNode:
             self.__initialize_as_leader()
         else:
             self.__try_to_apply_membership(contact_addr)
+
+    def __shutdown(self):
+        # TODO : Implement shutdown
+        pass
 
     # Internal Raft Node methods
     def __print_log(self, text: str):
@@ -45,8 +53,23 @@ class RaftNode:
             "cluster_leader_addr": self.address
         }
         # TODO : Inform to all node this is new leader
+        for addr in self.cluster_addr_list:
+            if addr == self.address:
+                continue
+            self.__send_request(request, "initialize_as_leader", addr)
+
+        # Start heartbeat thread
         self.heartbeat_thread = Thread(target=asyncio.run,args=[self.__leader_heartbeat()])
         self.heartbeat_thread.start()
+
+    def initialize_as_follower(self, leader_addr: Address):
+        self.__print_log("Initialize as follower node...")
+        self.cluster_leader_addr = leader_addr
+        self.type                = RaftNode.NodeType.FOLLOWER
+        # Start election timeout
+        self.election_timeout = time.time() + RaftNode.ELECTION_TIMEOUT_MIN + (RaftNode.ELECTION_TIMEOUT_MAX - RaftNode.ELECTION_TIMEOUT_MIN) * random.random()
+        self.election_thread  = Thread(target=asyncio.run,args=[self.__follower_election()])
+        self.election_thread.start()
 
     async def __leader_heartbeat(self):
         # TODO : Send periodic heartbeat

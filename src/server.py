@@ -1,14 +1,20 @@
-from address       import Address
-from raft          import RaftNode
+import json
+import os
+import signal
+import sys
+import asyncio
+import time
 from xmlrpc.server import SimpleXMLRPCServer
-from app           import KVStore
 
+from lib.raft import RaftNode
+from lib.app import Application
+from lib.struct.address import Address
 
 def start_serving(addr: Address, contact_node_addr: Address):
     print(f"Starting Raft Server at {addr.ip}:{addr.port}")
     with SimpleXMLRPCServer((addr.ip, addr.port)) as server:
         server.register_introspection_functions()
-        server.register_instance(RaftNode(KVStore(), addr, contact_node_addr))
+        server.register_instance(RaftNode(Application(), addr, contact_node_addr))
         server.serve_forever()
 
 if __name__ == "__main__":

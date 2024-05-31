@@ -3,7 +3,7 @@ class Application:
         self.data = {}
 
     def ping(self):
-        print("PONG")
+        return "PONG"
 
     def get(self, key):
         return self.data.get(key, "")
@@ -29,6 +29,7 @@ class Application:
 # Example usage
 app = Application()
 print(app.ping())
+print(app.get("kunci"))
 print(app.set("kunci", "satu"))
 print(app.append("kunci", "dua"))
 print(app.get("kunci"))
