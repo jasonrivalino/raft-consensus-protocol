@@ -21,26 +21,20 @@ class RaftNode:
         CANDIDATE = 2
         FOLLOWER = 3
 
-    def __init__(self, application: Any, addr: Address, contact_addr: Address = None):
+    def __init__(self, application : Any, addr: Address, contact_addr: Address = None):
         socket.setdefaulttimeout(RaftNode.RPC_TIMEOUT)
-        self.address: Address = addr
-        self.type: RaftNode.NodeType = RaftNode.NodeType.FOLLOWER
-        self.log: List[Dict[str, Any]] = []
-        self.app: Application = application
-        self.election_term: int = 0
-        self.cluster_addr_list: List[Address] = []
-        self.cluster_leader_addr: Address = None
-        self.vote_count = 0
-        self.voted_for = None
-
+        self.address:             Address           = addr
+        self.type:                RaftNode.NodeType = RaftNode.NodeType.FOLLOWER
+        self.log:                 List[str, str]    = []
+        self.app:                 Any               = application
+        self.election_term:       int               = 0
+        self.cluster_addr_list:   List[Address]     = []
+        self.cluster_leader_addr: Address           = None
         if contact_addr is None:
             self.cluster_addr_list.append(self.address)
             self.__initialize_as_leader()
         else:
             self.__try_to_apply_membership(contact_addr)
-
-    def __shutdown(self):
-        self.__print_log("Shutting down...")
 
     # Internal Raft Node methods
     def __print_log(self, text: str):
