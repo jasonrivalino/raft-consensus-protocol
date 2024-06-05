@@ -28,19 +28,19 @@ def send_request(request: dict, method: str, addr: Address) -> dict:
 
 def menu():
     print("Pilih salah satu menu:")
-    print("1. Ping")
-    print("2. Get")
-    print("3. Set")
-    print("4. Strlen")
-    print("5. Delete")
-    print("6. Append")
-    print("7. Exit")
-    return int(input("Choose: "))
+    print("1. ping")
+    print("2. get")
+    print("3. set")
+    print("4. strlen")
+    print("5. delete")
+    print("6. append")
+    print("7. exit")
+    return input("Pilihan Command: ")
 
 def validate_input(value: str) -> bool:
     return value != ""
 
-def main():
+def start_serving():
     if len(sys.argv) < 3:
         print("Usage: client.py ip port")
         exit()
@@ -48,11 +48,11 @@ def main():
     addr = Address(sys.argv[1], int(sys.argv[2]))
     while True:
         choice = menu()
-        if choice == 1:
+        if choice == "ping":
             request = {"command": "ping"}
             response = send_request(request, "execute", addr)
             print(response)
-        elif choice == 2:
+        elif choice == "get":
             key = input("Key: ")
             if not validate_input(key):
                 print("Key cannot be empty")
@@ -60,7 +60,7 @@ def main():
             request = {"command": "get", "args": key}
             response = send_request(request, "execute", addr)
             print(response)
-        elif choice == 3:
+        elif choice == "set":
             key = input("Key: ")
             value = input("Value: ")
             if not validate_input(key) or not validate_input(value):
@@ -69,7 +69,7 @@ def main():
             request = {"command": "set", "args": f"{key} {value}"}
             response = send_request(request, "execute", addr)
             print(response)
-        elif choice == 4:
+        elif choice == "strlen":
             key = input("Key: ")
             if not validate_input(key):
                 print("Key cannot be empty")
@@ -77,7 +77,7 @@ def main():
             request = {"command": "strln", "args": key}
             response = send_request(request, "execute", addr)
             print(response)
-        elif choice == 5:
+        elif choice == "delete":
             key = input("Key: ")
             if not validate_input(key):
                 print("Key cannot be empty")
@@ -85,7 +85,7 @@ def main():
             request = {"command": "delete", "args": key}
             response = send_request(request, "execute", addr)
             print(response)
-        elif choice == 6:
+        elif choice == "append":
             key = input("Key: ")
             value = input("Value: ")
             if not validate_input(key) or not validate_input(value):
@@ -94,10 +94,14 @@ def main():
             request = {"command": "append", "args": f"{key} {value}"}
             response = send_request(request, "execute", addr)
             print(response)
-        elif choice == 7:
+        elif choice == "exit":
             break
         else:
             print("Invalid choice")
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 3:
+        print("client.py <ip> <port>")
+        exit()
+
+    start_serving()
