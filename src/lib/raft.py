@@ -204,6 +204,13 @@ class RaftNode:
             response = {"vote_granted": False, "term": self.election_term}
         return json.dumps(response)
 
+    def append_log(self, json_request: str) -> "json":
+        request = json.loads(json_request)
+        self.log.append(request)
+        response = {"status": "success", "log": self.log}
+        print(response)
+        return json.dumps(response)
+    
     # Client RPCs
     def execute(self, json_request: str) -> str:
         request = json.loads(json_request)
@@ -212,24 +219,34 @@ class RaftNode:
 
         if self.type == RaftNode.NodeType.LEADER:
             self.log.append(request)
-            if command == "ping":
-                response = self.app.ping()
-            elif command == "get":
-                response = self.app.get(args)
-            elif command == "set":
-                key, value = args.split(" ", 1)
-                response = self.app.set(key, value)
-            elif command == "strln":
-                response = self.app.strln(args)
-            elif command == "delete":
-                response = self.app.delete(args)
-            elif command == "append":
-                key, value = args.split(" ", 1)
-                response = self.app.append(key, value)
-            else:
-                response = "Unknown command"
+            counter = 0
+            for addr in self.cluster_addr_list:
+                if addr == self.address:
+                    continue
+                self.__send_request(request, "append_log", addr)
+                counter += 1
+            if counter > len(self.cluster_addr_list) // 2:        
+                if command == "ping":
+                    response = self.app.ping()
+                elif command == "get":
+                    response = self.app.get(args)
+                elif command == "set":
+                    key, value = args.split(" ", 1)
+                    response = self.app.set(key, value)
+                elif command == "strln":
+                    response = self.app.strln(args)
+                elif command == "delete":
+                    response = self.app.delete(args)
+                elif command == "append":
+                    key, value = args.split(" ", 1)
+                    response = self.app.append(key, value)
+                else:
+                    response = "Unknown command"
 
-            return json.dumps({"status": "success", "response": response, "log": self.log})
+                return json.dumps({"status": "success", "response": response, "log": self.log})
+            else:
+                response = {"status": "error", "message": "Failed to replicate log to majority of nodes"}
+                return json.dumps(response)
         else:
             response = {"status": "redirect", "leader": self.cluster_leader_addr}
             return json.dumps(response)
