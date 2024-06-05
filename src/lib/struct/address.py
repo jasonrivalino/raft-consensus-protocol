@@ -15,3 +15,6 @@ class Address(dict):
     
     def __ne__(self, other):
         return self.ip != other.ip or self.port != other.port
+    
+    def __hash__(self) -> int:
+        return hash((self.ip, self.port))

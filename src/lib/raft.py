@@ -98,36 +98,90 @@ class RaftNode:
             self.__send_request(request, "request_vote", addr)
 
     def __try_to_apply_membership(self, contact_addr: Address):
-        redirected_addr = contact_addr
-        response = {
-            "status": "redirected",
-            "address": {
-                "ip": contact_addr.ip,
-                "port": contact_addr.port,
-            }
-        }
-        while response["status"] != "success":
-            self.__print_log(f"Applying membership for {self.address.ip}:{self.address.port}")
-            redirected_addr = Address(response["address"]["ip"], response["address"]["port"])
+        response = self.__send_request(self.address, "apply_membership", contact_addr)
+        
+        while response["status"] == "redirected":
+            redirected_addr = Address(response["leader"].ip, response["leader"].ip)
+            self.__print_log(f"Redirected to {redirected_addr}...")
             response = self.__send_request(self.address, "apply_membership", redirected_addr)
-        self.log = response["log"]
-        self.cluster_addr_list = response["cluster_addr_list"]
-        self.cluster_leader_addr = redirected_addr
-        request = {
-            "cluster_leader_addr": redirected_addr
-        }
-        for addr in self.cluster_addr_list:
-            if addr == self.address:
-                continue
-            self.__send_request(request, "initialize_as_leader", addr)
+        
+        if response["status"] == "success":
+            print("RESPOEPSNES")
+            print(response)
+            self.__print_log(f"Successfully joined the cluster. Current cluster configuration: {response['cluster_addr_list']}")
+            self.log = response["log"]
+            self.cluster_addr_list = {Address(addr['ip'], addr['port']) for addr in response["cluster_addr_list"]}
+            self.cluster_leader_addr = Address(response["leader"]['ip'], response["leader"]['port'])
+            for addr in self.cluster_addr_list:
+                if addr == self.address:
+                    continue
+                try:
+                    self.__print_log(f"Sending cluster address list to {addr}")
+                    response = self.__send_request([a.__dict__ for a in self.cluster_addr_list], "set_cluster_addr_list", addr)
+                    self.__print_log(f"Response from {addr}: {response}")
+                except Exception as e:
+                    self.__print_log(f"Error sending cluster address list to {addr}: {e}")
+            
+        else:
+            self.__print_log(f"Failed to join the cluster: {response['message']}")
 
-    def __send_request(self, request: Any, rpc_name: str, addr: Address) -> "json":
-        node = ServerProxy(f"http://{addr.ip}:{addr.port}")
-        json_request = json.dumps(request)
-        rpc_function = getattr(node, rpc_name)
-        response = json.loads(rpc_function(json_request))
-        self.__print_log(f"Response from {addr}: {response}")
-        return response
+
+    def apply_membership(self, json_request: str) -> str:
+        if (self.type == RaftNode.NodeType.LEADER):
+            request = json.loads(json_request)
+            addr = Address(request["ip"], request["port"])
+            self.cluster_addr_list.append(addr)
+            # self.cluster_addr_list.extend(request)
+            self.cluster_addr_list = list(set(self.cluster_addr_list))
+            print("Membership applied: ", self.cluster_addr_list)
+                    
+            response = {
+                "status": "success",
+                "log": self.log,
+                "cluster_addr_list": self.cluster_addr_list,
+                "leader": self.cluster_leader_addr
+            }
+            return json.dumps(response)
+        else:
+            response = {
+                "status": "redirected",
+                "leader": self.cluster_leader_addr
+            }
+            print("REDIRECTING TO LEADER: ", response["leader"])
+            return json.dumps(response)
+    
+    def set_cluster_addr_list(self, json_request: str) -> str:
+        try:
+            self.__print_log("Setting cluster addr list")
+            request = json.loads(json_request)
+            self.cluster_addr_list = [Address(**addr) for addr in request]
+            response = {
+                "status": "success",
+                "cluster_addr_list": request
+            }
+            print("NODE ", self.address, " SET CLUSTER ADDR LIST: ", self.cluster_addr_list)
+            return json.dumps(response)
+        except Exception as e:
+            self.__print_log(f"Error in set_cluster_addr_list: {e}")
+            response = {
+                "status": "error",
+                "message": str(e)
+            }
+            return json.dumps(response)
+
+    
+    def __send_request(self, request: Any, rpc_name: str, addr: Address) -> Dict[str, Any]:
+        try:
+            node = ServerProxy(f"http://{addr.ip}:{addr.port}")
+            json_request = json.dumps(request)
+            self.__print_log(f"Sending request to {addr}: {json_request}")
+            rpc_function = getattr(node, rpc_name)
+            response = json.loads(rpc_function(json_request))
+            self.__print_log(f"Response from {addr}: {response}")
+            return response
+        except Exception as e:
+            self.__print_log(f"Error in __send_request: {e}")
+            return {"status": "error", "message": str(e)}
 
     # Inter-node RPCs
     def heartbeat(self, json_request: str) -> "json":
