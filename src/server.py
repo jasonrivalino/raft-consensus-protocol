@@ -1,18 +1,16 @@
-import json
-import os
-import signal
 import sys
+import json
 import asyncio
 import time
 from xmlrpc.server import SimpleXMLRPCServer
-
+from threading import Thread
 from lib.raft import RaftNode
 from lib.app import Application
 from lib.struct.address import Address
 
-def start_serving(addr: Address, contact_node_addr: Address):
+def start_serving(addr: Address, contact_node_addr: Address = None):
     print(f"Starting Raft Server at {addr.ip}:{addr.port}")
-    with SimpleXMLRPCServer((addr.ip, addr.port)) as server:
+    with SimpleXMLRPCServer((addr.ip, addr.port), allow_none=True) as server:
         server.register_introspection_functions()
         server.register_instance(RaftNode(Application(), addr, contact_node_addr))
         server.serve_forever()

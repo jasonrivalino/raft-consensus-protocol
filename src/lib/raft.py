@@ -151,11 +151,31 @@ class RaftNode:
         return json.dumps(response)
 
     # Client RPCs
-    def execute(self, json_request: str) -> "json":
+    def execute(self, json_request: str) -> str:
         request = json.loads(json_request)
+        command = request.get("command")
+        args = request.get("args", "")
+
         if self.type == RaftNode.NodeType.LEADER:
             self.log.append(request)
-            response = {"status": "success", "log": self.log}
+            if command == "ping":
+                response = self.app.ping()
+            elif command == "get":
+                response = self.app.get(args)
+            elif command == "set":
+                key, value = args.split(" ", 1)
+                response = self.app.set(key, value)
+            elif command == "strln":
+                response = self.app.strln(args)
+            elif command == "delete":
+                response = self.app.delete(args)
+            elif command == "append":
+                key, value = args.split(" ", 1)
+                response = self.app.append(key, value)
+            else:
+                response = "Unknown command"
+
+            return json.dumps({"status": "success", "response": response, "log": self.log})
         else:
             response = {"status": "redirect", "leader": self.cluster_leader_addr}
-        return json.dumps(response)
+            return json.dumps(response)
