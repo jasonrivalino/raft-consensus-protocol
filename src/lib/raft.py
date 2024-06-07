@@ -61,7 +61,8 @@ class RaftNode:
         self.__print_log("Initialize as follower node...")
         self.cluster_leader_addr = leader_addr
         self.type = RaftNode.NodeType.FOLLOWER
-        self.election_timeout = time.time() + RaftNode.ELECTION_TIMEOUT_MIN + (RaftNode.ELECTION_TIMEOUT_MAX - RaftNode.ELECTION_TIMEOUT_MIN) * random.random()
+        self.heartbeat_random_timeout = random.uniform(0.150,0.300)
+        self.election_timeout = time.time() + self.heartbeat_random_timeout
         self.election_thread = Thread(target=asyncio.run, args=[self.__follower_election()])
         self.election_thread.start()
 
@@ -191,8 +192,8 @@ class RaftNode:
     # Inter-node RPCs
     def heartbeat(self, json_request: str) -> "json":
         request = json.loads(json_request)
-        self.election_timeout = time.time() + RaftNode.ELECTION_TIMEOUT_MIN + (RaftNode.ELECTION_TIMEOUT_MAX - RaftNode.ELECTION_TIMEOUT_MIN) * random.random()
-        # self.election_timeout = time.time() + self.election_timeout # Seharusnya tidak perlu random lagi (?)
+        # self.election_timeout = time.time() + RaftNode.ELECTION_TIMEOUT_MIN + (RaftNode.ELECTION_TIMEOUT_MAX - RaftNode.ELECTION_TIMEOUT_MIN) * random.random()
+        self.election_timeout = time.time() + self.heartbeat_random_timeout # Seharusnya tidak perlu random lagi (?)
         response = {
             "heartbeat_response": "ack",
             "address": self.address,
