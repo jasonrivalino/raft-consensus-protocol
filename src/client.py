@@ -96,6 +96,14 @@ def start_serving():
             print(response)
         elif choice == "exit":
             break
+        if choice == "leader_log_test":
+            request = {"command": "leader_log_test"}
+            response = send_request(request, "execute", addr)
+            print(response)
+        if choice == "follower_log_test":
+            request = {"command": "follower_log_test"}
+            response = send_request(request, "execute", addr)
+            print(response)
         else:
             print("Invalid choice")
 

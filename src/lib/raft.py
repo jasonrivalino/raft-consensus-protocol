@@ -32,6 +32,7 @@ class RaftNode:
         self.uncommitted_log:     List[str, str]    = []
         self.cluster_leader_addr: Address           = None
         self.pending_command                        = None
+        self.heartbeat_random_timeout: float        = RaftNode.ELECTION_TIMEOUT_MIN + (RaftNode.ELECTION_TIMEOUT_MAX - RaftNode.ELECTION_TIMEOUT_MIN) * random.random()
         if contact_addr is None:
             self.cluster_addr_list.append(self.address)
             self.__initialize_as_leader()
@@ -61,7 +62,7 @@ class RaftNode:
         self.__print_log("Initialize as follower node...")
         self.cluster_leader_addr = leader_addr
         self.type = RaftNode.NodeType.FOLLOWER
-        self.heartbeat_random_timeout = random.uniform(0.150,0.300)
+        # self.heartbeat_random_timeout = RaftNode.ELECTION_TIMEOUT_MIN + (RaftNode.ELECTION_TIMEOUT_MAX - RaftNode.ELECTION_TIMEOUT_MIN) * random.random()
         self.election_timeout = time.time() + self.heartbeat_random_timeout
         self.election_thread = Thread(target=asyncio.run, args=[self.__follower_election()])
         self.election_thread.start()
@@ -112,8 +113,6 @@ class RaftNode:
             response = self.__send_request(self.address, "apply_membership", redirected_addr)
         
         if response["status"] == "success":
-            print("RESPOEPSNES")
-            print(response)
             self.__print_log(f"Successfully joined the cluster. Current cluster configuration: {response['cluster_addr_list']}")
             self.log = response["log"]
             self.cluster_addr_list = {Address(addr['ip'], addr['port']) for addr in response["cluster_addr_list"]}
@@ -198,6 +197,7 @@ class RaftNode:
             "heartbeat_response": "ack",
             "address": self.address,
         }
+        print("LOG: " + str(self.log))
         return json.dumps(response)
 
     def request_vote(self, json_request: str) -> "json":
@@ -213,41 +213,156 @@ class RaftNode:
 
     def append_log(self, json_request: str) -> "json":
         request = json.loads(json_request)
-        self.uncommitted_log.append(request)
+        leaderTerm = request["term"]
+        prevLogIndex = request["prevLogIndex"]
+        prevLogTerm = request["prevLogTerm"]
+        log = request["log"]
+        leaderCommitIndex = request["leaderCommitIndex"]
+        
+        if leaderTerm < self.election_term:
+            response = {"status": "error", "message": "Leader term is outdated", "term": self.election_term}
+            return json.dumps(response)
+        
+        if prevLogIndex >= len(self.log):
+            response = {"status": "error", "message": "Log index is outdated", "logIdx": len(self.log)}
+            return json.dumps(response)
+        
+        if prevLogIndex >= 0 and self.log[prevLogIndex]["term"] != prevLogTerm:
+            print("LOG TERM OUTDATED: ", + self.log[prevLogIndex]["term"], prevLogTerm, prevLogIndex)         
+            response = {"status": "error", "message": "Log term is outdated", "logIdx": prevLogIndex-1}
+            return json.dumps(response)
+        
+        self.log = self.log[:leaderCommitIndex]
+        for entry in log:
+            self.uncommitted_log.append(entry)
         response = {"status": "success", "log": self.uncommitted_log}
         return json.dumps(response)
+    
+    ############################################################################################
+    # TESTER METHODS
+    def follower_log_test(self, json_request: str) -> "json":
+        request = json.loads(json_request)
+        log = request["log"]
+        for entry in log:
+            self.uncommitted_log.append(entry)
+            
+        self.commit_log()
+        response = {"status": "success", "log": self.uncommitted_log}
+        return json.dumps(response)
+    ############################################################################################
     
     def commit_log(self, buffer = None) -> "json":
         self.log.extend(self.uncommitted_log)
         self.uncommitted_log = []
         response = {"status": "success", "log": self.log}
-        print("LOG", self.log)
         return json.dumps(response)
     
     def rollback_log(self, buffer = None) -> "json":
         self.uncommitted_log = []
         response = {"status": "error", "message": "Failed to replicate log to majority of nodes. commits are rolled back."}
         return json.dumps(response)
+
+    def log_replication_error(self, response, addr):
+        if response["message"] == "Leader term is outdated":
+            # TODO: leader step down
+            pass
+        elif response["message"] == "Log index is outdated":
+            newEntry = {}
+            newEntry["term"] = self.election_term
+            newEntry["prevLogIndex"] = response["logIdx"] - 1
+            newEntry["prevLogTerm"] = self.log[response["logIdx"]]["term"] if len(self.log) > response["logIdx"] else 0
+            newEntry["leaderCommitIndex"] = response["logIdx"]
+            newEntry["log"] = []
+            for i in range(response["logIdx"], len(self.log)):
+                newEntry["log"].append(self.log[i])
+            for i in range(len(self.uncommitted_log)):
+                newEntry["log"].append(self.uncommitted_log[i])
+            response = self.__send_request(newEntry, "append_log", addr)
+            if (response["status"] == "success"):
+                return 1
+        elif response["message"] == "Log term is outdated":
+            while response["logIdx"] > 0 and response["status"]=="error":
+                if response["message"] == "Log term is outdated":
+                    newEntry = {}
+                    newEntry["term"] = self.election_term
+                    newEntry["prevLogIndex"] = response["logIdx"] - 1
+                    newEntry["prevLogTerm"] = self.log[response["logIdx"]]["term"] if len(self.log) > response["logIdx"] else 0
+                    newEntry["leaderCommitIndex"] = response["logIdx"]
+                    newEntry["log"] = []
+                    for i in range(response["logIdx"], len(self.log)):
+                        newEntry["log"].append(self.log[i])
+                    for i in range(len(self.uncommitted_log)):
+                        newEntry["log"].append(self.uncommitted_log[i])
+                    response = self.__send_request(newEntry, "append_log", addr)
+                    if (response["status"] == "success"):
+                        return 1
         
+        return 0
+    
     # Client RPCs
     def __execute_pending_command(self, buffer = None):
         request = self.pending_command
         self.pending_command = None  # Clear the pending command after executing it
         command = request.get("command")
         args = request.get("args", "")
+        
+        ##############################################################################################
+        # TESTER COMMANDS
+        if command == "leader_log_test":
+            self.election_term += 1
+            log = {}
+            log["command"] = command
+            log["args"] = args
+            log["term"] = self.election_term
+            log["index"] = len(self.log)
 
-        self.uncommitted_log.append(request)
-        counter = 0
+            self.uncommitted_log.append(log)
+            self.commit_log()
+            return json.dumps({"status": "success", "response": "test", "log": self.log})
+        
+        if command == "follower_log_test":
+            entry = {}
+            entry["term"] = self.election_term
+            entry["prevLogIndex"] = len(self.log) - 1
+            entry["prevLogTerm"] = self.log[-1]["term"] if len(self.log) > 0 else 0
+            entry["log"] = self.log
+            entry["leaderCommitIndex"] = len(self.log)
+
+            for addr in self.cluster_addr_list:
+                if addr == self.address:
+                    continue
+                response = self.__send_request(entry, "follower_log_test", addr)
+            return json.dumps({"status": "success", "response": "test", "log": self.log})
+        ##############################################################################################
+        
+        log = {}
+        log["command"] = command
+        log["args"] = args
+        log["term"] = self.election_term
+        log["index"] = len(self.log)
+
+        self.uncommitted_log.append(log)
+        
+        entry = {}
+        entry["term"] = self.election_term
+        entry["prevLogIndex"] = len(self.log) - 1
+        entry["prevLogTerm"] = self.log[-1]["term"] if len(self.log) > 0 else 0
+        entry["log"] = [log]
+        entry["leaderCommitIndex"] = len(self.log)
+        counter = 1
+        
         for addr in self.cluster_addr_list:
             if addr == self.address:
                 continue
-            self.__send_request(request, "append_log", addr)
-            print(addr)
-            counter += 1
+            response = self.__send_request(entry, "append_log", addr)
+            if (response["status"] == "success"):
+                counter += 1
+            elif (response["status"] == "error"):
+                counter += self.log_replication_error(response, addr)
+            
         if counter > len(self.cluster_addr_list) // 2 or len(self.cluster_addr_list) <= 2:
             
-            self.log.extend(self.uncommitted_log)
-            self.uncommitted_log = []
+            self.commit_log()
             
             for addr in self.cluster_addr_list:
                 if addr == self.address:
@@ -270,7 +385,6 @@ class RaftNode:
                 response = self.app.append(key, value)
             else:
                 response = "Unknown command"
-            print("COMMAND", command)
             return json.dumps({"status": "success", "response": response, "log": self.log})
         else:
             response = self.rollback_log()
