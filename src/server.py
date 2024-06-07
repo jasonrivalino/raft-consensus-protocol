@@ -2,6 +2,8 @@ import sys
 import json
 import asyncio
 import time
+import os
+import signal
 from xmlrpc.server import SimpleXMLRPCServer
 from threading import Thread
 from lib.raft import RaftNode
@@ -13,7 +15,11 @@ def start_serving(addr: Address, contact_node_addr: Address = None):
     with SimpleXMLRPCServer((addr.ip, addr.port), allow_none=True) as server:
         server.register_introspection_functions()
         server.register_instance(RaftNode(Application(), addr, contact_node_addr))
-        server.serve_forever()
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            server.shutdown()
+            os.kill(os.getpid(), signal.SIGTERM)
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
