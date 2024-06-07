@@ -29,7 +29,9 @@ class RaftNode:
         self.app:                 Any               = application
         self.election_term:       int               = 0
         self.cluster_addr_list:   List[Address]     = []
+        self.uncommitted_log:     List[str, str]    = []
         self.cluster_leader_addr: Address           = None
+        self.pending_command                        = None
         if contact_addr is None:
             self.cluster_addr_list.append(self.address)
             self.__initialize_as_leader()
@@ -59,7 +61,8 @@ class RaftNode:
         self.__print_log("Initialize as follower node...")
         self.cluster_leader_addr = leader_addr
         self.type = RaftNode.NodeType.FOLLOWER
-        self.election_timeout = time.time() + RaftNode.ELECTION_TIMEOUT_MIN + (RaftNode.ELECTION_TIMEOUT_MAX - RaftNode.ELECTION_TIMEOUT_MIN) * random.random()
+        self.heartbeat_random_timeout = random.uniform(0.150,0.300)
+        self.election_timeout = time.time() + self.heartbeat_random_timeout
         self.election_thread = Thread(target=asyncio.run, args=[self.__follower_election()])
         self.election_thread.start()
 
@@ -74,6 +77,9 @@ class RaftNode:
                     "leader_id": self.address
                 }
                 self.__send_request(request, "heartbeat", addr)
+                if self.pending_command is not None:
+                    self.__execute_pending_command()
+            print("LOG: " + str(self.log))
             await asyncio.sleep(RaftNode.HEARTBEAT_INTERVAL)
 
     async def __follower_election(self):
@@ -101,7 +107,7 @@ class RaftNode:
         response = self.__send_request(self.address, "apply_membership", contact_addr)
         
         while response["status"] == "redirected":
-            redirected_addr = Address(response["leader"].ip, response["leader"].ip)
+            redirected_addr = Address(response["leader"]["ip"], response["leader"]["port"])
             self.__print_log(f"Redirected to {redirected_addr}...")
             response = self.__send_request(self.address, "apply_membership", redirected_addr)
         
@@ -118,7 +124,7 @@ class RaftNode:
                 try:
                     self.__print_log(f"Sending cluster address list to {addr}")
                     response = self.__send_request([a.__dict__ for a in self.cluster_addr_list], "set_cluster_addr_list", addr)
-                    self.__print_log(f"Response from {addr}: {response}")
+                    # self.__print_log(f"Response from {addr}: {response}")
                 except Exception as e:
                     self.__print_log(f"Error sending cluster address list to {addr}: {e}")
             
@@ -174,10 +180,10 @@ class RaftNode:
         try:
             node = ServerProxy(f"http://{addr.ip}:{addr.port}")
             json_request = json.dumps(request)
-            self.__print_log(f"Sending request to {addr}: {json_request}")
+            # self.__print_log(f"Sending request to {addr}: {json_request}")
             rpc_function = getattr(node, rpc_name)
             response = json.loads(rpc_function(json_request))
-            self.__print_log(f"Response from {addr}: {response}")
+            # self.__print_log(f"Response from {addr}: {response}")
             return response
         except Exception as e:
             self.__print_log(f"Error in __send_request: {e}")
@@ -186,7 +192,8 @@ class RaftNode:
     # Inter-node RPCs
     def heartbeat(self, json_request: str) -> "json":
         request = json.loads(json_request)
-        self.election_timeout = time.time() + RaftNode.ELECTION_TIMEOUT_MIN + (RaftNode.ELECTION_TIMEOUT_MAX - RaftNode.ELECTION_TIMEOUT_MIN) * random.random()
+        # self.election_timeout = time.time() + RaftNode.ELECTION_TIMEOUT_MIN + (RaftNode.ELECTION_TIMEOUT_MAX - RaftNode.ELECTION_TIMEOUT_MIN) * random.random()
+        self.election_timeout = time.time() + self.heartbeat_random_timeout # Seharusnya tidak perlu random lagi (?)
         response = {
             "heartbeat_response": "ack",
             "address": self.address,
@@ -206,47 +213,78 @@ class RaftNode:
 
     def append_log(self, json_request: str) -> "json":
         request = json.loads(json_request)
-        self.log.append(request)
-        response = {"status": "success", "log": self.log}
-        print(response)
+        self.uncommitted_log.append(request)
+        response = {"status": "success", "log": self.uncommitted_log}
         return json.dumps(response)
     
+    def commit_log(self, buffer = None) -> "json":
+        self.log.extend(self.uncommitted_log)
+        self.uncommitted_log = []
+        response = {"status": "success", "log": self.log}
+        print("LOG", self.log)
+        return json.dumps(response)
+    
+    def rollback_log(self, buffer = None) -> "json":
+        self.uncommitted_log = []
+        response = {"status": "error", "message": "Failed to replicate log to majority of nodes. commits are rolled back."}
+        return json.dumps(response)
+        
     # Client RPCs
-    def execute(self, json_request: str) -> str:
-        request = json.loads(json_request)
+    def __execute_pending_command(self, buffer = None):
+        request = self.pending_command
+        self.pending_command = None  # Clear the pending command after executing it
         command = request.get("command")
         args = request.get("args", "")
 
-        if self.type == RaftNode.NodeType.LEADER:
-            self.log.append(request)
-            counter = 0
+        self.uncommitted_log.append(request)
+        counter = 0
+        for addr in self.cluster_addr_list:
+            if addr == self.address:
+                continue
+            self.__send_request(request, "append_log", addr)
+            print(addr)
+            counter += 1
+        if counter > len(self.cluster_addr_list) // 2 or len(self.cluster_addr_list) <= 2:
+            
+            self.log.extend(self.uncommitted_log)
+            self.uncommitted_log = []
+            
             for addr in self.cluster_addr_list:
                 if addr == self.address:
                     continue
-                self.__send_request(request, "append_log", addr)
-                counter += 1
-            if counter > len(self.cluster_addr_list) // 2:        
-                if command == "ping":
-                    response = self.app.ping()
-                elif command == "get":
-                    response = self.app.get(args)
-                elif command == "set":
-                    key, value = args.split(" ", 1)
-                    response = self.app.set(key, value)
-                elif command == "strln":
-                    response = self.app.strln(args)
-                elif command == "delete":
-                    response = self.app.delete(args)
-                elif command == "append":
-                    key, value = args.split(" ", 1)
-                    response = self.app.append(key, value)
-                else:
-                    response = "Unknown command"
-
-                return json.dumps({"status": "success", "response": response, "log": self.log})
+                self.__send_request(None, "commit_log", addr)
+                        
+            if command == "ping":
+                response = self.app.ping()
+            elif command == "get":
+                response = self.app.get(args)
+            elif command == "set":
+                key, value = args.split(" ", 1)
+                response = self.app.set(key, value)
+            elif command == "strln":
+                response = self.app.strln(args)
+            elif command == "delete":
+                response = self.app.delete(args)
+            elif command == "append":
+                key, value = args.split(" ", 1)
+                response = self.app.append(key, value)
             else:
-                response = {"status": "error", "message": "Failed to replicate log to majority of nodes"}
-                return json.dumps(response)
+                response = "Unknown command"
+            print("COMMAND", command)
+            return json.dumps({"status": "success", "response": response, "log": self.log})
         else:
-            response = {"status": "redirect", "leader": self.cluster_leader_addr}
+            response = self.rollback_log()
+            for addr in self.cluster_addr_list:
+                if addr == self.address:
+                    continue
+                self.__send_request(None, "rollback_log", addr)
             return json.dumps(response)
+        
+    def execute(self, json_request: str) -> str:
+        request = json.loads(json_request)
+
+        if self.type == RaftNode.NodeType.LEADER:
+            self.pending_command = request  # Store the command to be executed after the next heartbeat
+            return json.dumps({"status": "pending", "message": "Command will be executed after the next heartbeat"})
+        else:
+            return json.dumps({"status": "redirect", "leader": self.cluster_leader_addr})
