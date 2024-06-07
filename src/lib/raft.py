@@ -16,6 +16,7 @@ class RaftNode:
     ELECTION_TIMEOUT_MAX = 3
     RPC_TIMEOUT = 0.5
 
+    LOG_REPLICATION_ERROR_MESSAGE = ["Leader term is outdated", "Log index is outdated", "Log term is outdated"]
     class NodeType(Enum):
         LEADER = 1
         CANDIDATE = 2
@@ -55,6 +56,7 @@ class RaftNode:
                 continue
             self.__send_request(request, "initialize_as_leader", addr)
 
+        
         self.heartbeat_thread = Thread(target=asyncio.run, args=[self.__leader_heartbeat()])
         self.heartbeat_thread.start()
 
@@ -278,8 +280,11 @@ class RaftNode:
             for i in range(len(self.uncommitted_log)):
                 newEntry["log"].append(self.uncommitted_log[i])
             response = self.__send_request(newEntry, "append_log", addr)
+            msg = response.get("message", "")
             if (response["status"] == "success"):
                 return 1
+            elif (response["status"] == "error" and msg in RaftNode.LOG_REPLICATION_ERROR_MESSAGE):
+                return self.log_replication_error(response, addr)
         elif response["message"] == "Log term is outdated":
             while response["logIdx"] > 0 and response["status"]=="error":
                 if response["message"] == "Log term is outdated":
@@ -294,8 +299,11 @@ class RaftNode:
                     for i in range(len(self.uncommitted_log)):
                         newEntry["log"].append(self.uncommitted_log[i])
                     response = self.__send_request(newEntry, "append_log", addr)
+                    msg = response.get("message", "")
                     if (response["status"] == "success"):
                         return 1
+                    elif (response["status"] == "error" and msg in RaftNode.LOG_REPLICATION_ERROR_MESSAGE):
+                        return self.log_replication_error(response, addr)
         
         return 0
     
@@ -349,6 +357,7 @@ class RaftNode:
         entry["prevLogTerm"] = self.log[-1]["term"] if len(self.log) > 0 else 0
         entry["log"] = [log]
         entry["leaderCommitIndex"] = len(self.log)
+        
         counter = 1
         
         for addr in self.cluster_addr_list:
@@ -383,8 +392,6 @@ class RaftNode:
             elif command == "append":
                 key, value = args.split(" ", 1)
                 response = self.app.append(key, value)
-            else:
-                response = "Unknown command"
             return json.dumps({"status": "success", "response": response, "log": self.log})
         else:
             response = self.rollback_log()
