@@ -12,8 +12,8 @@ from lib.struct.address import Address
 
 class RaftNode:
     HEARTBEAT_INTERVAL = 1
-    ELECTION_TIMEOUT_MIN = 2
-    ELECTION_TIMEOUT_MAX = 3
+    ELECTION_TIMEOUT_MIN = 20
+    ELECTION_TIMEOUT_MAX = 30
     RPC_TIMEOUT = 0.5
 
     class NodeType(Enum):
@@ -44,8 +44,8 @@ class RaftNode:
         else:
             self.__try_to_apply_membership(contact_addr)
 
-        # self.election_thread = Thread(target=self.run_election_timeout_checker)
-        # self.election_thread.start()
+        self.election_thread = Thread(target=self.run_election_timeout_checker)
+        self.election_thread.start()
 
     def reset_election_timeout(self):
         self.election_timeout = time.time() + RaftNode.ELECTION_TIMEOUT_MIN + \
@@ -55,11 +55,11 @@ class RaftNode:
         asyncio.run(self.__follower_election())
 
     def __print_log(self, text: str):
-        print(f"[{self.address}] [{time.strftime('%H:%M:%S')}] {text}")
+        print(f"[{self.address.ip}:{self.address.port}] [{time.strftime('%H:%M:%S')}] {text}")
 
     def __initialize_as_leader(self):
         with self.election_lock:
-            self.__print_log("[Follower] Initialize as leader node...")
+            self.__print_log("[FOLLOWER] Initialize as leader node...")
             self.cluster_leader_addr = self.address
             self.type = RaftNode.NodeType.LEADER
             request = {
@@ -85,7 +85,7 @@ class RaftNode:
 
     async def __leader_heartbeat(self):
         while self.type == RaftNode.NodeType.LEADER:
-            self.__print_log("[Leader] Sending heartbeat...")
+            self.__print_log("[LEADER] Sending heartbeat...")
             for addr in self.cluster_addr_list:
                 if addr == self.address:
                     continue
@@ -102,13 +102,13 @@ class RaftNode:
     async def __follower_election(self):
         while True:
             if self.type in [RaftNode.NodeType.FOLLOWER, RaftNode.NodeType.CANDIDATE] and time.time() > self.election_timeout:
-                self.__print_log("[Follower] Election timeout, starting new election...")
+                self.__print_log("[FOLLOWER] Election timeout")
                 self.__start_election()
             await asyncio.sleep(0.1)
 
     def __start_election(self):
         with self.election_lock:
-            self.__print_log("Starting election...")
+            self.__print_log("[CANDIDATE] Starting election...")
             self.election_term += 1
             self.type = RaftNode.NodeType.CANDIDATE
             self.vote_count = 1  # vote for self
@@ -121,19 +121,19 @@ class RaftNode:
             for addr in self.cluster_addr_list:
                 if addr == self.address:
                     continue
-                self.__print_log(f"Sending vote request to {addr}")
-                self.__send_request(request, "request_vote", addr)
-            self.__print_log("Waiting for votes...")
+                self.__print_log(f"[CANDIDATE] Sending vote request to {addr}")
+                self.__send_request("[CANDIDATE]", request, "request_vote", addr)
+            self.__print_log("[CANDIDATE] Waiting for votes...")
             Thread(target=self.__wait_for_votes).start()
 
     def __wait_for_votes(self):
         time.sleep(RaftNode.ELECTION_TIMEOUT_MIN)
         with self.election_lock:
             if self.type == RaftNode.NodeType.CANDIDATE and self.vote_count > len(self.cluster_addr_list) // 2:
-                self.__print_log("Received majority votes, becoming leader...")
+                self.__print_log("[CANDIDATE] Received majority votes, becoming leader...")
                 self.__initialize_as_leader()
             else:
-                self.__print_log("Failed to receive majority votes, becoming follower again.")
+                self.__print_log("[CANDIDATE] Failed to receive majority votes, becoming follower again.")
                 self.type = RaftNode.NodeType.FOLLOWER
                 self.voted_for = None
                 self.reset_election_timeout()
@@ -142,6 +142,7 @@ class RaftNode:
         response = self.__send_request(self.address.__dict__, "apply_membership", contact_addr)
         while response["status"] == "redirected":
             redirected_addr = Address(response["leader"]["ip"], response["leader"]["port"])
+            self.__print_log(f"Apply membership request for {contact_addr} is redirected to {redirected_addr}")
             self.__print_log(f"Redirected to {redirected_addr}...")
             response = self.__send_request(self.address.__dict__, "apply_membership", redirected_addr)
 
@@ -218,6 +219,8 @@ class RaftNode:
     def heartbeat(self, json_request: str) -> str:
         request = json.loads(json_request)
         self.reset_election_timeout()
+        
+        # Check if the received term is greater than the current election term
         if request["term"] > self.election_term:
             self.election_term = request["term"]
             self.cluster_leader_addr = Address(request["leader_id"]["ip"], request["leader_id"]["port"])
@@ -227,6 +230,10 @@ class RaftNode:
             self.cluster_leader_addr = Address(request["leader_id"]["ip"], request["leader_id"]["port"])
             if self.type != RaftNode.NodeType.LEADER:
                 self.type = RaftNode.NodeType.FOLLOWER
+        
+        # Log the heartbeat reception
+        self.__print_log(f"[FOLLOWER] Heartbeat from {self.cluster_leader_addr.ip}:{self.cluster_leader_addr.port}")
+
         response = {
             "heartbeat_response": "ack",
             "address": self.address.__dict__,

@@ -1,34 +1,44 @@
 import sys
-import json
-import asyncio
-import time
-import os
-import signal
 from xmlrpc.server import SimpleXMLRPCServer
-from threading import Thread
+from xmlrpc.server import SimpleXMLRPCRequestHandler
+from xmlrpc.server import SimpleXMLRPCServer
 from lib.raft import RaftNode
 from lib.app import Application
 from lib.struct.address import Address
 
-def start_serving(addr: Address, contact_node_addr: Address = None):
-    print(f"Starting Raft Server at {addr.ip}:{addr.port}")
-    with SimpleXMLRPCServer((addr.ip, addr.port), allow_none=True) as server:
-        server.register_introspection_functions()
-        server.register_instance(RaftNode(Application(), addr, contact_node_addr))
-        try:
-            server.serve_forever()
-        except KeyboardInterrupt:
-            server.shutdown()
-            os.kill(os.getpid(), signal.SIGTERM)
+# Custom server to suppress logs
+class QuietXMLRPCRequestHandler(SimpleXMLRPCRequestHandler):
+    def log_message(self, format, *args):
+        pass
+
+class QuietSimpleXMLRPCServer(SimpleXMLRPCServer):
+    def __init__(self, *args, **kwargs):
+        SimpleXMLRPCServer.__init__(self, *args, **kwargs, requestHandler=QuietXMLRPCRequestHandler)
+
+    def log_message(self, format, *args):
+        pass
+
+def start_server(host, port, contact_host=None, contact_port=None):
+    app = Application()
+    addr = Address(host, port)
+    contact_addr = Address(contact_host, contact_port) if contact_host and contact_port else None
+    
+    node = RaftNode(app, addr, contact_addr)
+    
+    # Use the quiet server
+    server = QuietSimpleXMLRPCServer((host, port), allow_none=True)
+    server.register_instance(node)
+    print(f"Serving on {host}:{port}...")
+    server.serve_forever()
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: server.py ip port [contact_ip] [contact_port]")
-        exit()
+    if len(sys.argv) not in (3, 5):
+        print("Usage: python server.py <host> <port> [<contact_host> <contact_port>]")
+        sys.exit(1)
 
-    contact_addr = None
-    if len(sys.argv) == 5:
-        contact_addr = Address(sys.argv[3], int(sys.argv[4]))
-    server_addr = Address(sys.argv[1], int(sys.argv[2]))
+    host = sys.argv[1]
+    port = int(sys.argv[2])
+    contact_host = sys.argv[3] if len(sys.argv) == 5 else None
+    contact_port = int(sys.argv[4]) if len(sys.argv) == 5 else None
 
-    start_serving(server_addr, contact_addr)
+    start_server(host, port, contact_host, contact_port)
