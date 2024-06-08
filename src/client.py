@@ -29,11 +29,11 @@ def send_request(request: dict, method: str, addr: Address) -> dict:
 def menu():
     print("Pilih salah satu menu:")
     print("1. ping")
-    print("2. get")
-    print("3. set")
-    print("4. strlen")
-    print("5. delete")
-    print("6. append")
+    print("2. get <key>")
+    print("3. set <key> <value>")
+    print("4. strlen <key>")
+    print("5. delete <key>")
+    print("6. append <key> <value>")
     print("7. exit")
     return input("Pilihan Command: ")
 
@@ -47,66 +47,78 @@ def start_serving():
 
     addr = Address(sys.argv[1], int(sys.argv[2]))
     while True:
-        choice = menu()
-        if choice == "ping":
+        choice = menu().split(" ")
+        if choice[0] == "ping":
             request = {"command": "ping"}
             response = send_request(request, "execute", addr)
-            print(response)
-        elif choice == "get":
-            key = input("Key: ")
+            print(json.loads(response["response"])["response"])
+        elif choice[0] == "get":
+            key = choice[1]
+            if len(choice) < 2:
+                print("Usage: get <key>")
+                continue
             if not validate_input(key):
                 print("Key cannot be empty")
                 continue
             request = {"command": "get", "args": key}
             response = send_request(request, "execute", addr)
-            print(response)
-        elif choice == "set":
-            key = input("Key: ")
-            value = input("Value: ")
+            print(json.loads(response["response"])["response"])
+        elif choice[0] == "set":
+            if len(choice) < 3:
+                print("Usage: set <key> <value>")
+                continue
+            key = choice[1]
+            value = choice[2]
             if not validate_input(key) or not validate_input(value):
                 print("Key and value cannot be empty")
                 continue
             request = {"command": "set", "args": f"{key} {value}"}
             response = send_request(request, "execute", addr)
-            print(response)
-        elif choice == "strlen":
-            key = input("Key: ")
+            print(json.loads(response["response"])["response"])
+        elif choice[0] == "strlen":
+            if len(choice) < 2:
+                print("Usage: strlen <key>")
+                continue
+            key = choice[1]
             if not validate_input(key):
                 print("Key cannot be empty")
                 continue
             request = {"command": "strln", "args": key}
             response = send_request(request, "execute", addr)
-            print(response)
-        elif choice == "delete":
-            key = input("Key: ")
+            print(json.loads(response["response"])["response"])
+        elif choice[0] == "delete":
+            if len(choice) < 2:
+                print("Usage: delete <key>")
+                continue
+            key = choice[1]
             if not validate_input(key):
                 print("Key cannot be empty")
                 continue
             request = {"command": "delete", "args": key}
             response = send_request(request, "execute", addr)
-            print(response)
-        elif choice == "append":
-            key = input("Key: ")
-            value = input("Value: ")
+            print(json.loads(response["response"])["response"])
+        elif choice[0] == "append":
+            if len(choice) < 3:
+                print("Usage: append <key> <value>")
+                continue
+            key = choice[1]
+            value = choice[2]
             if not validate_input(key) or not validate_input(value):
                 print("Key and value cannot be empty")
                 continue
             request = {"command": "append", "args": f"{key} {value}"}
             response = send_request(request, "execute", addr)
-            print(response)
-        elif choice == "getResponse":
-            response = send_request(None, "get_client_response", addr)
-            print(response["response"])
-        elif choice == "exit":
+            print(json.loads(response["response"])["response"])
+        elif choice[0] == "exit":
             break
-        elif choice == "leader_log_test":
+        elif choice[0] == "leader_log_test":
             request = {"command": "leader_log_test"}
             response = send_request(request, "execute", addr)
-            print(response)
-        elif choice == "follower_log_test":
+            print(json.loads(response["response"])["response"])
+        elif choice[0] == "follower_log_test":
             request = {"command": "follower_log_test"}
             response = send_request(request, "execute", addr)
-            print(response)
+            print(json.loads(response["response"])["response"])
         else:
             print("Invalid choice")
 

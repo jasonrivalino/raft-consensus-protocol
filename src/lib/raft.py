@@ -118,9 +118,6 @@ class RaftNode:
     async def __leader_heartbeat(self):
         while self.type == RaftNode.NodeType.LEADER:
             self.__print_log(f"{RaftNode.GREEN_COLOR}[LEADER]{RaftNode.RESET_COLOR} Sending heartbeat...")
-            print(self.pending_command)
-            # if self.pending_command is not None:
-            #     self.__execute_pending_command()
             
             for addr in self.cluster_addr_list:
                 if addr == self.address:
@@ -130,7 +127,7 @@ class RaftNode:
                     "leader_id": self.address.__dict__
                 }
                 self.__send_request(request, "heartbeat", addr)
-            print("LOG: " + str(self.log))
+            # print("LOG: " + str(self.log))
             await asyncio.sleep(RaftNode.HEARTBEAT_INTERVAL)
 
     async def __follower_election(self):
@@ -322,7 +319,6 @@ class RaftNode:
             return json.dumps(response)
         
         if prevLogIndex >= 0 and self.log[prevLogIndex]["term"] != prevLogTerm:
-            print("LOG TERM OUTDATED: ", + self.log[prevLogIndex]["term"], prevLogTerm, prevLogIndex)         
             response = {"status": "error", "message": "Log term is outdated", "logIdx": prevLogIndex-1}
             return json.dumps(response)
         
@@ -348,6 +344,7 @@ class RaftNode:
     def commit_log(self, buffer = None) -> "json":
         self.log.extend(self.uncommitted_log)
         self.uncommitted_log = []
+        self.__print_log(f"LOG: {self.log}")
         response = {"status": "success", "log": self.log}
         return json.dumps(response)
     
@@ -474,7 +471,6 @@ class RaftNode:
                 response = self.app.ping()
             elif command == "get":
                 response = self.app.get(args)
-                # print("GET RESPONSE: ", response)
             elif command == "set":
                 key, value = args.split(" ", 1)
                 response = self.app.set(key, value)
@@ -504,6 +500,6 @@ class RaftNode:
         if self.type == RaftNode.NodeType.LEADER:
             self.pending_command = request  # Store the command to be executed after the next heartbeat
             response = self.__execute_pending_command()
-            return json.dumps({"status": "pending", "message": response})
+            return json.dumps({"status": "success", "response": response, "log": self.log})
         else:
             return json.dumps({"status": "redirect", "leader": self.cluster_leader_addr})
