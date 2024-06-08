@@ -1,4 +1,6 @@
 import sys
+import os
+import signal
 from xmlrpc.server import SimpleXMLRPCServer
 from xmlrpc.server import SimpleXMLRPCRequestHandler
 from xmlrpc.server import SimpleXMLRPCServer
@@ -28,8 +30,12 @@ def start_server(host, port, contact_host=None, contact_port=None):
     # Use the quiet server
     server = QuietSimpleXMLRPCServer((host, port), allow_none=True)
     server.register_instance(node)
-    print(f"Serving on {host}:{port}...")
-    server.serve_forever()
+    print(f"Starting Raft Server at {host}:{port}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.shutdown()
+        os.kill(os.getpid(), signal.SIGTERM)
 
 if __name__ == "__main__":
     if len(sys.argv) not in (3, 5):

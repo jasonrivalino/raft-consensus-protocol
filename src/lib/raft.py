@@ -79,29 +79,12 @@ class RaftNode:
 
     def reset_election_timeout(self):
         self.election_timeout = time.time() + self.heartbeat_random_timeout
-        print("Election timeout: ", self.election_timeout)
 
     def run_election_timeout_checker(self):
         asyncio.run(self.__follower_election())
 
     def __print_log(self, text: str):
         print(f"[{self.address.ip}:{self.address.port}] [{time.strftime('%H:%M:%S')}] {text}")
-
-    # def __initialize_as_leader(self):
-    #     with self.election_lock:
-    #         self.__print_log("[FOLLOWER] Initialize as leader node...")
-    #         self.cluster_leader_addr = self.address
-    #         self.type = RaftNode.NodeType.LEADER
-    #         request = {
-    #             "cluster_leader_addr": self.address.__dict__
-    #         }
-    #         for addr in self.cluster_addr_list:
-    #             if addr == self.address:
-    #                 continue
-    #             self.__send_request(request, "initialize_as_leader", addr)
-
-    #         self.heartbeat_thread = Thread(target=asyncio.run, args=[self.__leader_heartbeat()])
-    #         self.heartbeat_thread.start()
 
     def initialize_as_follower(self, leader_addr: Address):
         with self.election_lock:
@@ -254,12 +237,9 @@ class RaftNode:
     # Inter-node RPCs
     def heartbeat(self, json_request: str) -> str:
         request = json.loads(json_request)
-        print("ELECTIONTIMEOUTBEFORE", self.election_timeout)
         self.reset_election_timeout()
-        print("ELECTIONTIMEOUTAFTER", self.election_timeout)
         
         # Check if the received term is greater than the current election term
-        print("election term: ", self.election_term, "request term: ", request["term"])
         if request["term"] > self.election_term:
             self.election_term = request["term"]
             self.cluster_leader_addr = Address(request["leader_id"]["ip"], request["leader_id"]["port"])
@@ -271,7 +251,7 @@ class RaftNode:
                 self.type = RaftNode.NodeType.FOLLOWER
         
         # Log the heartbeat reception
-        self.__print_log(f"[FOLLOWER] Heartbeat from {self.cluster_leader_addr.ip}:{self.cluster_leader_addr.port}")
+        self.__print_log(f"[FOLLOWER] Receive Heartbeat from {self.cluster_leader_addr.ip}:{self.cluster_leader_addr.port}")
 
         response = {
             "heartbeat_response": "ack",
