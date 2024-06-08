@@ -69,6 +69,19 @@ class RaftNode:
         self.heartbeat_thread = Thread(target=asyncio.run, args=[self.__leader_heartbeat()])
         self.heartbeat_thread.start()
 
+        for entry in self.log:
+            command = entry["command"]
+            args = entry["args"]
+
+            if command == "set":
+                key, value = args.split(" ", 1)
+                self.app.set(key, value)
+            elif command == "delete":
+                self.app.delete(args)
+            elif command == "append":
+                key, value = args.split(" ", 1)
+                self.app.append(key, value)
+
     def initialize_as_follower(self, leader_addr: Address):
         self.__print_log("Initialize as follower node...")
         self.cluster_leader_addr = leader_addr
@@ -450,6 +463,7 @@ class RaftNode:
                 response = self.app.ping()
             elif command == "get":
                 response = self.app.get(args)
+                # print("GET RESPONSE: ", response)
             elif command == "set":
                 key, value = args.split(" ", 1)
                 response = self.app.set(key, value)
