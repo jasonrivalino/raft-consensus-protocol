@@ -12,8 +12,8 @@ from lib.struct.address import Address
 
 class RaftNode:
     HEARTBEAT_INTERVAL = 1
-    ELECTION_TIMEOUT_MIN = 20
-    ELECTION_TIMEOUT_MAX = 30
+    ELECTION_TIMEOUT_MIN = 2
+    ELECTION_TIMEOUT_MAX = 3
     RPC_TIMEOUT = 0.5
 
     LOG_REPLICATION_ERROR_MESSAGE = ["Leader term is outdated", "Log index is outdated", "Log term is outdated"]
@@ -152,7 +152,7 @@ class RaftNode:
                 if addr == self.address:
                     continue
                 self.__print_log(f"[CANDIDATE] Sending vote request to {addr}")
-                self.__send_request("[CANDIDATE]", request, "request_vote", addr)
+                self.__send_request(request, "request_vote", addr)
             self.__print_log("[CANDIDATE] Waiting for votes...")
             Thread(target=self.__wait_for_votes).start()
 
@@ -447,8 +447,8 @@ class RaftNode:
                 counter += self.log_replication_error(response, addr)
             
         if counter > len(self.cluster_addr_list) // 2 or len(self.cluster_addr_list) <= 2:
-            # self.log.extend(self.uncommitted_log)
-            # self.uncommitted_log = []
+            self.log.extend(self.uncommitted_log)
+            self.uncommitted_log = []
             
             self.commit_log()
             
