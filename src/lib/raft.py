@@ -119,8 +119,8 @@ class RaftNode:
         while self.type == RaftNode.NodeType.LEADER:
             self.__print_log(f"{RaftNode.GREEN_COLOR}[LEADER]{RaftNode.RESET_COLOR} Sending heartbeat...")
             print(self.pending_command)
-            if self.pending_command is not None:
-                self.__execute_pending_command()
+            # if self.pending_command is not None:
+            #     self.__execute_pending_command()
             
             for addr in self.cluster_addr_list:
                 if addr == self.address:
@@ -150,7 +150,9 @@ class RaftNode:
         self.reset_election_timeout()
         request = {
             "term": self.election_term,
-            "candidate_id": self.address.__dict__
+            "candidate_id": self.address.__dict__,
+            "index": len(self.log)-1,
+            "last_term": self.log[-1]["term"] if len(self.log) > 0 else 0
         }
         for addr in self.cluster_addr_list:
             if addr == self.address or addr == self.cluster_leader_addr:
@@ -285,8 +287,12 @@ class RaftNode:
         request = json.loads(json_request)
         candidate_id = Address(**request["candidate_id"])
         candidate_term = request["term"]
+        candidate_log_idx = request["index"]
+        candidate_log_term = request["last_term"]
 
-        if candidate_term > self.election_term:
+        if (candidate_log_term < self.log[-1]["term"] or (candidate_log_idx < len(self.log)-1) and candidate_log_term == self.log[-1]["term"]):
+            response = {"status": "success", "vote_granted": False, "term": self.election_term}
+        elif candidate_term > self.election_term:
             self.election_term = candidate_term
             self.voted_for = candidate_id
             self.type = RaftNode.NodeType.FOLLOWER
@@ -497,6 +503,7 @@ class RaftNode:
         self.client_response = "Waiting for server to respond..."
         if self.type == RaftNode.NodeType.LEADER:
             self.pending_command = request  # Store the command to be executed after the next heartbeat
-            return json.dumps({"status": "pending", "message": "Command will be executed after the next heartbeat"})
+            response = self.__execute_pending_command()
+            return json.dumps({"status": "pending", "message": response})
         else:
             return json.dumps({"status": "redirect", "leader": self.cluster_leader_addr})
