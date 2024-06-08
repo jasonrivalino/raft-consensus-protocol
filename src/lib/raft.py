@@ -113,8 +113,8 @@ class RaftNode:
             await asyncio.sleep(RaftNode.HEARTBEAT_INTERVAL)
 
     async def __follower_election(self):
-        while True:
-            if self.type in [RaftNode.NodeType.FOLLOWER] and time.time() > self.election_timeout:
+        while self.type == RaftNode.NodeType.FOLLOWER:
+            if time.time() > self.election_timeout:
                 print(time.time(), self.election_timeout)
                 self.__print_log("[FOLLOWER] Election timeout")
                 self.__start_election()
@@ -288,7 +288,7 @@ class RaftNode:
         leaderCommitIndex = request["leaderCommitIndex"]
         
         if leaderTerm < self.election_term:
-            response = {"status": "error", "message": "Leader term is outdated", "term": self.election_term}
+            response = {"status": "error", "message": "Leader term is outdated", "term": self.election_term, "leader_address": self.cluster_leader_addr.__dict__}
             return json.dumps(response)
         
         if prevLogIndex >= len(self.log):
@@ -332,8 +332,7 @@ class RaftNode:
 
     def log_replication_error(self, response, addr):
         if response["message"] == "Leader term is outdated":
-            # TODO: leader step down
-            pass
+            self.initialize_as_follower(Address(response["leader_address"]["ip"], response["leader_address"]["port"]))
         elif response["message"] == "Log index is outdated":
             newEntry = {}
             newEntry["term"] = self.election_term
