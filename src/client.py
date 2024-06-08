@@ -94,13 +94,16 @@ def start_serving():
             request = {"command": "append", "args": f"{key} {value}"}
             response = send_request(request, "execute", addr)
             print(response)
+        elif choice == "getResponse":
+            response = send_request(None, "get_client_response", addr)
+            print(response["response"])
         elif choice == "exit":
             break
-        if choice == "leader_log_test":
+        elif choice == "leader_log_test":
             request = {"command": "leader_log_test"}
             response = send_request(request, "execute", addr)
             print(response)
-        if choice == "follower_log_test":
+        elif choice == "follower_log_test":
             request = {"command": "follower_log_test"}
             response = send_request(request, "execute", addr)
             print(response)

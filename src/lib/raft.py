@@ -38,6 +38,7 @@ class RaftNode:
         self.election_lock                          = Lock()
         self.election_timeout:    float             = 0
         self.heartbeat_random_timeout: float        = RaftNode.ELECTION_TIMEOUT_MIN + (RaftNode.ELECTION_TIMEOUT_MAX - RaftNode.ELECTION_TIMEOUT_MIN) * random.random()
+        self.client_response:     str               = "Waiting for server to respond..."
         self.reset_election_timeout()
         
         if contact_addr is None:
@@ -99,6 +100,10 @@ class RaftNode:
     async def __leader_heartbeat(self):
         while self.type == RaftNode.NodeType.LEADER:
             self.__print_log("[LEADER] Sending heartbeat...")
+            print(self.pending_command)
+            if self.pending_command is not None:
+                self.__execute_pending_command()
+            
             for addr in self.cluster_addr_list:
                 if addr == self.address:
                     continue
@@ -107,8 +112,6 @@ class RaftNode:
                     "leader_id": self.address.__dict__
                 }
                 self.__send_request(request, "heartbeat", addr)
-                if self.pending_command is not None:
-                    self.__execute_pending_command()
             print("LOG: " + str(self.log))
             await asyncio.sleep(RaftNode.HEARTBEAT_INTERVAL)
 
@@ -238,7 +241,6 @@ class RaftNode:
     def heartbeat(self, json_request: str) -> str:
         request = json.loads(json_request)
         self.reset_election_timeout()
-        
         # Check if the received term is greater than the current election term
         if request["term"] > self.election_term:
             self.election_term = request["term"]
@@ -458,6 +460,7 @@ class RaftNode:
             elif command == "append":
                 key, value = args.split(" ", 1)
                 response = self.app.append(key, value)
+            self.client_response = response
             return json.dumps({"status": "success", "response": response, "log": self.log})
         else:
             response = self.rollback_log()
@@ -466,9 +469,13 @@ class RaftNode:
                     continue
                 self.__send_request(None, "rollback_log", addr)
             return json.dumps(response)
-        
+    
+    def get_client_response(self, buffer = None) -> str:
+        return json.dumps({"status": "success", "response": self.client_response})
+    
     def execute(self, json_request: str) -> str:
         request = json.loads(json_request)
+        self.client_response = "Waiting for server to respond..."
         if self.type == RaftNode.NodeType.LEADER:
             self.pending_command = request  # Store the command to be executed after the next heartbeat
             return json.dumps({"status": "pending", "message": "Command will be executed after the next heartbeat"})
