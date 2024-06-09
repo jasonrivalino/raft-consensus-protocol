@@ -126,7 +126,8 @@ class RaftNode:
             if time.time() > self.election_timeout:
                 print(time.time(), self.election_timeout)
                 self.__print_log(f"{RaftNode.BLUE_COLOR}[FOLLOWER]{RaftNode.RESET_COLOR} Election timeout")
-                self.__start_election()
+                if self.type == RaftNode.NodeType.FOLLOWER:
+                    self.__start_election()
             await asyncio.sleep(0.1)
 
     def __start_election(self):
@@ -150,7 +151,7 @@ class RaftNode:
                 if response["vote_granted"]:
                     self.vote_count += 1
         self.__print_log(f"{RaftNode.YELLOW_COLOR}[CANDIDATE]{RaftNode.RESET_COLOR} Waiting for votes...")
-        Thread(target=self.__wait_for_votes).start()
+        self.__wait_for_votes()
 
     def __wait_for_votes(self):
         time.sleep(RaftNode.ELECTION_TIMEOUT_MIN)
@@ -396,6 +397,9 @@ class RaftNode:
         command = request.get("command")
         args = request.get("args", "")
         
+        if command == "request_log":
+            response = self.log
+            return json.dumps({"status": "success", "response": response, "log": self.log})
         ##############################################################################################
         # TESTER COMMANDS
         if command == "leader_log_test":
