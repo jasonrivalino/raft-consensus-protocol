@@ -408,6 +408,9 @@ class RaftNode:
         command = request.get("command")
         args = request.get("args", "")
         
+        if command == "request_log":
+            response = self.log
+            return json.dumps({"status": "success", "response": response, "log": self.log})
         ##############################################################################################
         # TESTER COMMANDS
         if command == "leader_log_test":
