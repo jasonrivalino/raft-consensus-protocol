@@ -114,10 +114,11 @@ class RaftNode:
                     "leader_id": self.address.__dict__
                 }
                 response = self.__send_request(request, "heartbeat", addr)
-                if (response["term"] > self.election_term):
-                    self.__print_log(f"{RaftNode.GREEN_COLOR}[LEADER]{RaftNode.RESET_COLOR} Leader term is outdated, stepping down...")
-                    self.initialize_as_follower(Address(response["leader"]["ip"], response["leader"]["port"]))
-                    break
+                if (response.get("status","") == "success"):
+                    if (response["term"] > self.election_term):
+                        self.__print_log(f"{RaftNode.GREEN_COLOR}[LEADER]{RaftNode.RESET_COLOR} Leader term is outdated, stepping down...")
+                        self.initialize_as_follower(Address(response["leader"]["ip"], response["leader"]["port"]))
+                        break
             await asyncio.sleep(RaftNode.HEARTBEAT_INTERVAL)
 
     async def __follower_election(self):
