@@ -34,7 +34,8 @@ def menu():
     print("4. strlen <key>")
     print("5. delete <key>")
     print("6. append <key> <value>")
-    print("7. exit")
+    print("7. changeAddress <ip> <port>")
+    print("8. exit")
     return input("Pilihan Command: ")
 
 def validate_input(value: str) -> bool:
@@ -109,6 +110,12 @@ def start_serving():
             request = {"command": "append", "args": f"{key} {value}"}
             response = send_request(request, "execute", addr)
             print(json.loads(response["response"])["response"])
+        elif choice[0] == "changeAddress":
+            if len(choice) < 3:
+                print("Usage: changeAddress <ip> <port>")
+                continue
+            addr = Address(choice[1], int(choice[2]))
+            print(f"Address changed to {addr.ip}:{addr.port}")
         elif choice[0] == "exit":
             break
         elif choice[0] == "leader_log_test":
