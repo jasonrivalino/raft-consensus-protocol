@@ -18,6 +18,16 @@ Program sederhana untuk mengimplementasikan protokol konsensus Raft sederhana. P
 - Heartbeat			(Node health monitoring & periodic messages)
 - Leader Election		(Leader node failover mechanism)
 
+## Library Program
+- xmlrpc		(ServerProxy untuk client, SimpleXMLRPCServer untuk server)
+- json		(Parser pesan)
+- asyncio	(Untuk asynchronous RPC)
+- time		(Digunakan untuk kepentingan logging)
+- socket		(Timeout untuk semua RPC)
+- threading	(Background thread)
+- sys		(Hanya untuk argumen)
+- Library pendukung lainnya (os, enum, typing, random, traceback, signal, HTTP)
+
 ## Cara Menjalankan Program
 <b>1. Clone repository ini terlebih dahulu</b>
 
