@@ -69,10 +69,6 @@ class RaftNode:
         request = {
             "cluster_leader_addr": self.address
         }
-        for addr in self.cluster_addr_list:
-            if addr == self.address:
-                continue
-            self.__send_request(request, "initialize_as_leader", addr)
 
         self.heartbeat_thread = Thread(target=asyncio.run, args=[self.__leader_heartbeat()])
         self.heartbeat_thread.start()
@@ -89,15 +85,6 @@ class RaftNode:
             elif command == "append":
                 key, value = args.split(" ", 1)
                 self.app.append(key, value)
-
-    def initialize_as_follower(self, leader_addr: Address):
-        self.__print_log("Initialize as follower node...")
-        self.cluster_leader_addr = leader_addr
-        self.type = RaftNode.NodeType.FOLLOWER
-        # self.heartbeat_random_timeout = RaftNode.ELECTION_TIMEOUT_MIN + (RaftNode.ELECTION_TIMEOUT_MAX - RaftNode.ELECTION_TIMEOUT_MIN) * random.random()
-        
-        self.election_thread = Thread(target=asyncio.run, args=[self.__follower_election()])
-        self.election_thread.start()
 
     def reset_election_timeout(self):
         self.election_timeout = time.time() + self.heartbeat_random_timeout
@@ -126,8 +113,11 @@ class RaftNode:
                     "term": self.election_term,
                     "leader_id": self.address.__dict__
                 }
-                self.__send_request(request, "heartbeat", addr)
-            # print("LOG: " + str(self.log))
+                response = self.__send_request(request, "heartbeat", addr)
+                if (response["term"] > self.election_term):
+                    self.__print_log(f"{RaftNode.GREEN_COLOR}[LEADER]{RaftNode.RESET_COLOR} Leader term is outdated, stepping down...")
+                    self.initialize_as_follower(Address(response["leader"]["ip"], response["leader"]["port"]))
+                    break
             await asyncio.sleep(RaftNode.HEARTBEAT_INTERVAL)
 
     async def __follower_election(self):
@@ -140,7 +130,6 @@ class RaftNode:
 
     def __start_election(self):
         self.__print_log(f"{RaftNode.YELLOW_COLOR}[CANDIDATE]{RaftNode.RESET_COLOR} Starting election...")
-        # self.election_term += 1
         self.type = RaftNode.NodeType.CANDIDATE
         self.vote_count = 1  # vote for self
         self.voted_for = self.address
@@ -154,7 +143,7 @@ class RaftNode:
         for addr in self.cluster_addr_list:
             if addr == self.address or addr == self.cluster_leader_addr:
                 continue
-            self.__print_log(f"[CANDIDATE] Sending vote request to {addr}")
+            self.__print_log(f"{RaftNode.YELLOW_COLOR}[CANDIDATE]{RaftNode.RESET_COLOR} Sending vote request to {addr}")
             response = self.__send_request(request, "request_vote", addr)
             if (response["status"] == "success"):
                 if response["vote_granted"]:
@@ -168,6 +157,7 @@ class RaftNode:
             if self.type == RaftNode.NodeType.CANDIDATE and self.vote_count > (len(self.cluster_addr_list)-1) // 2:
                 self.__print_log(f"{RaftNode.YELLOW_COLOR}[CANDIDATE]{RaftNode.RESET_COLOR} Received majority votes, becoming leader...")
                 self.election_term += 1
+                self.voted_for = None
                 self.__initialize_as_leader()
                 self.vote_count = 0
             else:
@@ -257,28 +247,29 @@ class RaftNode:
     # Inter-node RPCs
     def heartbeat(self, json_request: str) -> str:
         request = json.loads(json_request)
-        self.reset_election_timeout()
         # Check if the received term is greater than the current election term
-        if request["term"] > self.election_term:
-            self.election_term = request["term"]
-            self.cluster_leader_addr = Address(request["leader_id"]["ip"], request["leader_id"]["port"])
-            self.type = RaftNode.NodeType.FOLLOWER
-            self.voted_for = None
-        elif request["term"] == self.election_term:
-            self.cluster_leader_addr = Address(request["leader_id"]["ip"], request["leader_id"]["port"])
-            if self.type != RaftNode.NodeType.LEADER:
+        self.reset_election_timeout()
+        if request["term"] >= self.election_term:
+            if request["term"] > self.election_term:
+                self.election_term = request["term"]
+                self.cluster_leader_addr = Address(request["leader_id"]["ip"], request["leader_id"]["port"])
                 self.type = RaftNode.NodeType.FOLLOWER
+                self.voted_for = None
+            elif request["term"] == self.election_term:
+                self.cluster_leader_addr = Address(request["leader_id"]["ip"], request["leader_id"]["port"])
+                if self.type != RaftNode.NodeType.LEADER:
+                    self.type = RaftNode.NodeType.FOLLOWER
+            self.__print_log(f"{RaftNode.BLUE_COLOR}[FOLLOWER]{RaftNode.RESET_COLOR} Receive Heartbeat from {self.cluster_leader_addr.ip}:{self.cluster_leader_addr.port}")
+            # Log the heartbeat reception
+            response = {
+                "heartbeat_response": "ack",
+                "address": self.address.__dict__,
+                "term": self.election_term,
+                "leader": self.cluster_leader_addr.__dict__,
+            }
+            print("LOG: " + str(self.log))
+            return json.dumps(response)
         
-        # Log the heartbeat reception
-        self.__print_log(f"{RaftNode.BLUE_COLOR}[FOLLOWER]{RaftNode.RESET_COLOR} Receive Heartbeat from {self.cluster_leader_addr.ip}:{self.cluster_leader_addr.port}")
-
-        response = {
-            "heartbeat_response": "ack",
-            "address": self.address.__dict__,
-            "term": self.election_term
-        }
-        print("LOG: " + str(self.log))
-        return json.dumps(response)
 
     def request_vote(self, json_request: str) -> str:
         request = json.loads(json_request)
@@ -287,9 +278,11 @@ class RaftNode:
         candidate_log_idx = request["index"]
         candidate_log_term = request["last_term"]
 
-        if (candidate_log_term < self.log[-1]["term"] or (candidate_log_idx < len(self.log)-1) and candidate_log_term == self.log[-1]["term"]):
-            response = {"status": "success", "vote_granted": False, "term": self.election_term}
-        elif candidate_term > self.election_term:
+        if (len(self.log)>0):
+            if (candidate_log_term < self.log[-1]["term"] or (candidate_log_idx < len(self.log)-1 and candidate_log_term == self.log[-1]["term"])):
+                response = {"status": "success", "vote_granted": False, "term": self.election_term}
+                return json.dumps(response)
+        if candidate_term > self.election_term:
             self.election_term = candidate_term
             self.voted_for = candidate_id
             self.type = RaftNode.NodeType.FOLLOWER
@@ -502,4 +495,5 @@ class RaftNode:
             response = self.__execute_pending_command()
             return json.dumps({"status": "success", "response": response, "log": self.log})
         else:
-            return json.dumps({"status": "redirect", "leader": self.cluster_leader_addr})
+            response = {"status": "redirect", "response": f"Leader is at {self.cluster_leader_addr}"}
+            return json.dumps({"status": "redirect", "response": json.dumps(response)})

@@ -25,14 +25,3 @@ class Application:
         else:
             self.data[key] = value
         return "OK"
-
-# Example usage
-app = Application()
-print(app.ping())
-print(app.get("kunci"))
-print(app.set("kunci", "satu"))
-print(app.append("kunci", "dua"))
-print(app.get("kunci"))
-print(app.strln("kunci"))
-print(app.delete("kunci"))
-print(app.get("kunci"))
