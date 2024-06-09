@@ -175,12 +175,18 @@ class RaftNode:
                 self.reset_election_timeout()
             self.voted_for = None
             self.vote_count = 0
+            request = {
+                "ip": self.address.ip,
+                "port": self.address.port
+            }
             for addr in self.cluster_addr_list:
-                self.__send_request(self.address.__dict__, "set_voted_to_none", addr)
+                if addr == self.address:
+                    continue
+                self.__send_request(request, "set_voted_to_none", addr)
             
-    def set_voted_to_none(self, addr: Address):
-        addr = json.loads(addr)
-        addr = Address(addr["ip"], addr["port"])
+    def set_voted_to_none(self, addr: str):
+        address = json.loads(addr)
+        addr = Address(address["ip"], address["port"])
         if self.voted_for == addr:
             self.voted_for = None
         
